@@ -1,0 +1,52 @@
+# ############################################################################
+# Projet : Edge-AI-Education
+# Auteur : Barthélémy MENNOCK (GitHub: Supoz9)
+# Date   : 18 Juin 2026
+# Labo   : Laboratoire CIEL - Lycée Claude Chappe (Arnage)
+# Version: 1.0.0
+# ############################################################################
+
+version: '3.8'
+
+services:
+  # Service 1 : Le moteur d'inférence local Ollama
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama-server
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_NUM_PARALLEL=4 # Permet de gérer plusieurs requêtes d'élèves en simultané
+      - OLLAMA_MAX_LOADED_MODELS=2 # Laisse Jarvis et Ada chargés en VRAM en même temps
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all # Autorise Ollama à utiliser toutes les cartes graphiques dispo cumulées
+              capabilities: [gpu]
+
+  # Service 2 : L'interface utilisateur Web Open-Webui car même interface graphique que ChatGPT
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui-interface
+    restart: unless-stopped
+    ports:
+      - "80:8080" # Accessible directement sur le port HTTP standard (ex: http://ip_du_serveur)
+    volumes:
+      - open_webui_data:/app/backend/data
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434 # Connexion interne au conteneur Ollama
+      - WEBUI_AUTH=true # Active l'authentification pour gérer les comptes profs/élèves
+      - ENABLE_RAG=true # Active la fonction de Récupération-Génération Augmentée
+    depends_on:
+      - ollama
+
+volumes:
+  ollama_data:
+    name: ollama_storage
+  open_webui_data:
+    name: open_webui_storage
