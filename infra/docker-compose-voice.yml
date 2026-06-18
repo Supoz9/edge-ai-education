@@ -1,0 +1,49 @@
+# ############################################################################
+# Projet : Edge-AI-Education
+# Fichier: docker-compose-voice.yml (Extension Vocale Optionnelle)
+# Auteur : Barthélémy MENNOCK (GitHub: Supoz9)
+# Date   : 18 Juin 2026
+# Équipe : Laboratoire CIEL - Lycée Claude Chappe (Arnage)
+# Note   : Ce fichier s'ajoute au docker-compose.yml principal pour le vocal
+# ############################################################################
+
+version: '3.8'
+
+services:
+  # Docker va fusionner ces lignes directement dans le service Open WebUI principal
+  open-webui:
+    environment:
+      - AUDIO_STT_ENGINE=openai
+      - AUDIO_STT_API_BASE_URL=http://openedai-speech:8000/v1
+      - AUDIO_STT_API_KEY=local-voice-secret
+      - AUDIO_TTS_ENGINE=openai
+      - AUDIO_TTS_API_BASE_URL=http://openedai-speech:8000/v1
+      - AUDIO_TTS_API_KEY=local-voice-secret
+      - AUDIO_TTS_MODEL=tts-1
+      - AUDIO_TTS_VOICE=echo
+    depends_on:
+      - openedai-speech
+
+  # Le conteneur vocal supplémentaire (Activé uniquement si ce fichier est appelé)
+  openedai-speech:
+    image: ghcr.io/mscoutermarsh/openedai-speech:latest
+    container_name: openedai-speech-server
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - STT_MODEL=base          # Modèle Whisper léger et rapide pour le labo
+      - TTS_ENGINE=piper        # Moteur Piper ultra-léger (voix humaines fluides)
+    volumes:
+      - speech_data:/app/voices
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all        # Utilise l'accélération GPU pour une réponse instantanée
+              capabilities: [gpu]
+
+volumes:
+  speech_data:
+    name: open_webui_speech_storage
