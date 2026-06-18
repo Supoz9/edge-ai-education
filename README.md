@@ -71,10 +71,9 @@ Selon les objectifs de votre séance et les capacités de votre serveur, lancez 
 
   *   **Option A : Version Frugale (Texte uniquement — Économe en VRAM/RAM)**
       *Idéal pour les ateliers de réseau (Jarvis) ou de code (Ada).*
-
-    ```bash
-     docker compose up -d
-    ```
+      ```bash
+      docker compose up -d
+      ```
     
 *   **Option B : Version Grand Angle (Texte + Oral local avec l'IA)**
     *Idéal pour les séances de DNL Anglais avec William (génère un conteneur audio Whisper/Piper).*
