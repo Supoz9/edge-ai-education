@@ -216,3 +216,18 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ============================================================================
+# Spécificités de l'infrastructure Edge-AI-Education (Labo CIEL)
+# ============================================================================
+
+# Éviter d'envoyer les volumes de stockage locaux (Données Ollama, RAG et Audio)
+**/ollama_storage/
+**/open_webui_storage/
+**/open_webui_speech_storage/
+**/voices/
+**/.ollama/
+
+# Fichiers temporaires de téléchargement (keyrings Nvidia, packages CUDA)
+*.deb
+cuda-keyring_*
