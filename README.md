@@ -53,13 +53,61 @@ Plutôt qu'un modèle généraliste massif, l'infrastructure fait tourner des mo
 
 ##  Démarrage Rapide
 
-### 1. Prérequis
-Disposer d'une machine sous Debian 13 avec les pilotes NVIDIA et Docker installés.
+### 0. Prérequis
+Disposer d'une machine sous Debian 13 avec les pilotes NVIDIA et Docker installés et carte graphique type Nvidia GF 5060 Ti 16go.
 
-### 2. Déploiement de la Stack
-Clonez le dépôt et lancez l'infrastructure avec Docker Compose :
+L'installation et la configuration de l'environnement s'effectuent entièrement en ligne de commande depuis le terminal de votre serveur Debian 13. Le parcours est automatisé via trois scripts et commandes clés :
+
+### Étape 1 : Préparation automatique du système hôte
+Ce script configure l'ensemble des dépendances système nécessaires (mises à jour, Docker, clés et dépôts officiels NVIDIA Developer, pilotes propriétaires récents et le NVIDIA Container Toolkit).
+```bash
+chmod +x infra/setup-debian.sh
+sudo ./infra/setup-debian.sh
+```
+
+### Étape 2 : Initialisation des serveurs (Au choix)
+
+Selon les objectifs de votre séance et les capacités de votre serveur, lancez la stack Docker dans la configuration de votre choix :
+
+  *   **Option A : Version Frugale (Texte uniquement — Économe en VRAM/RAM)**
+      *Idéal pour les ateliers de réseau (Jarvis) ou de code (Ada).*
+
+    ```bash
+     docker compose up -d
+    ```
+    
+*   **Option B : Version Grand Angle (Texte + Oral local avec l'IA)**
+    *Idéal pour les séances de DNL Anglais avec William (génère un conteneur audio Whisper/Piper).*
+    ```bash
+    docker compose -f docker-compose.yml -f infra/docker-compose-voice.yml up -d
+    ```
+
+### Étape 3 : Chargement interactif des modèles maïeutiques
+Ce script interactif interroge l'enseignant sur la quantité de VRAM globale disponible sur la machine pour adapter la taille des IA. Il télécharge automatiquement les modèles de base appropriés et compile vos tuteurs personnalisés (**Jarvis**, **Ada**, **William**) à partir des `Modelfiles` du projet. (le monde de l'IA évolue rapidement n'hesiter 
 
 ```bash
-git clone [https://github.com/Supoz9/edge-ai-education.git](https://github.com/Supoz9/edge-ai-education.git)
-cd edge-ai-education/infra
-docker compose up -d
+chmod +x infra/load-models.sh
+./infra/load-models.sh
+```
+
+---
+
+Exploitation Pédagogique & RAG (Mémoire Documentaire)
+
+Une fois l'infrastructure démarrée, l'interface graphique est accessible pour les élèves sur le port configuré via Open WebUI.
+Liaison permanente des cours (RAG) :
+
+  Connectez-vous avec votre compte enseignant sur Open WebUI.
+
+  Accédez à la section Knowledge (Connaissances) et téléversez vos documents de cours (PDF, Markdown, notices constructeurs).
+
+  Modifiez la configuration de l'agent jarvis ou ada dans l'interface pour lui assigner ce dossier de connaissances.
+
+---
+
+>  **Modularité & Personnalisation (Créez vos propres agents) :** > Ce projet est pensé comme un **cadre de travail ouvert et évolutif**. Les agents fournis (`Jarvis`, `Ada`, `William`) sont des tuteurs de démonstration adaptés aux besoins du laboratoire CIEL, mais ils ne sont pas figés :
+> 
+> * **Faites évoluer les modèles (Veille technologique) :** Le monde de l'IA évolue à une vitesse fulgurante. Pour vérifier la taille des modèles et estimer la VRAM nécessaire, consultez la [Librairie Officielle Ollama](https://ollama.com/library) (l'onglet *Tags* donne la taille en Go de chaque version). Pour comparer l'intelligence et les performances des dernières nouveautés, consultez le [Hugging Face Open LLM Leaderboard](https://huggingface.co/spaces/open-llm-leaderboard/open_llm_leaderboard). Il vous suffira ensuite de modifier la première ligne (`FROM nom_du_modele`) dans vos fichiers `.modelfile`.
+> * **Créez vos propres tuteurs :** Vous pouvez cloner un `Modelfile` existant, le renommer (par exemple `Pythagore.modelfile`), ajuster son prompt système pour votre discipline (Maths, Physique, Histoire) et l'ajouter dans le dossier `agents/`.
+> * **Intégration automatique :** Ajoutez simplement la ligne de compilation `docker exec -i ollama-server ollama create votre_nom -f - < ../agents/VotreFichier.modelfile` dans le script `infra/load-models.sh` pour que votre nouvel agent apparaisse directement dans Open WebUI.
+
