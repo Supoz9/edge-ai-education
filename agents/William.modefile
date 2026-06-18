@@ -5,7 +5,7 @@
 # Date   : 18 Juin 2026
 # Équipe : Laboratoire CIEL - Lycée Claude Chappe (Arnage)
 # Base   : Qwen2.5 (Niveau B1/B2 Anglais)
-# attention si vous souhaitez utiliser William en version vocal ou un modèle en vocal il faudra choisir le fichier docker-compose-voice.yml pour configurer vos containers
+# attention si vous souhaitez utiliser William en version vocal ou un modèle en vocal il faudra utiliser aussi docker-compose-voice.yml
 # ############################################################################
 
 FROM qwen2.5
