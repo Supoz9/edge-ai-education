@@ -18,4 +18,4 @@ jobs:
           SSH_PRIVATE_KEY: ""
         with:
           source-repo: "https://github.com/Supoz9/edge-ai-education.git"
-          destination-repo: "https://Supoz9:${{ secrets.FORGE_TOKEN }}@forge.apps.education.fr/barthelemy/edge-ai-education.git"
+          destination-repo: "https://oauth2:${{ secrets.FORGE_TOKEN }}@forge.apps.education.fr/barthelemy/edge-ai-education.git"
