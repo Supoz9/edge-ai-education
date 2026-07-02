@@ -176,4 +176,4 @@ seul suffirait — mais CIEL est justement le cas où le lexical paie.
 4. System prompt maïeutique, avec comportement adapté au champ `type`.
 5. Mesure sur de vraies questions d'élèves. **Reranker** ajouté seulement si la
    pertinence mesurée est insuffisante.
-6. LoRA comportemental en tout dernier recours, si le prompt « fuit » malgré tout.
+6. LoRA comportemental en tout dernier recours, si le prompt « fuit » malgré tout. (QLoRA ?)
