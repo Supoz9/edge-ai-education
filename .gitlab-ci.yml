@@ -1,0 +1,29 @@
+variables:
+  FILES_TO_COMPRESS: "html txt md js css svg"
+
+pages:
+  image: alpine:latest
+  before_script:
+    - apk update && apk add gzip brotli
+  script: |
+    # En utilisant le symbole "|" ci-dessus, GitLab lit ce bloc comme du texte brut
+    mkdir -p .public
+    
+    echo "<html><head><title>Edge AI Education</title><meta charset='utf-8'><style>body{font-family:sans-serif;background:#1e1e2e;color:#cdd6f4;padding:40px;max-width:800px;margin:0 auto;line-height:1.6;}h1{color:#a6e3a1;border-bottom:2px solid #313244;padding-bottom:10px;}h2{color:#89b4fa;}p{color:#bac2de;}code{background:#313244;padding:2px 6px;border-radius:4px;color:#f38ba8;}</style></head><body>" > .public/index.html
+    echo "<h1>🚀 Edge AI Education</h1>" >> .public/index.html
+    echo "<p><b>Infrastructure d'IA souveraine, frugale et maïeutique distribuée par discipline au lycée.</b></p>" >> .public/index.html
+    echo "<h2>Statut du pipeline</h2>" >> .public/index.html
+    echo "<p>✅ Synchronisation double miroir SSH opérationnelle (Rig IA ➔ GitHub ➔ Forge).</p>" >> .public/index.html
+    echo "<p><i>Les fichiers de ce site ont été optimisés avec Gzip et Brotli.</i></p>" >> .public/index.html
+    echo "</body></html>" >> .public/index.html
+
+    cp README.md MENIFESTE.md .public/ 2>/dev/null || true
+    mv .public public
+    
+    for ext in $FILES_TO_COMPRESS; do find public -type f -name "*.$ext" -exec gzip -f -k {} \;; done
+    for ext in $FILES_TO_COMPRESS; do find public -type f -name "*.$ext" -exec brotli -f -k {} \;; done
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"

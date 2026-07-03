@@ -6,6 +6,8 @@
 
 Ce projet propose une alternative concrète et opérationnelle à la centralisation des méga-modèles d'IA générative en nuage (Cloud). Déployée avec succès au laboratoire CIEL du Lycée Claude Chappe (Arnage), cette architecture repose sur le concept de **"Rigs" de calcul distribués par discipline**. Elle permet d'exécuter des modèles d'IA légers, ultra-spécialisés et totalement autonomes, directement dans la salle de cours.
 
+> ℹ️ **État du projet (v1) :** Le développement actuel se concentre sur **un seul rig dédié à une seule discipline : le Bac Pro CIEL**, pour un maximum de 12 élèves en simultané. Cette approche « une discipline à la fois » permet de valider en profondeur le pipeline RAG et le comportement maïeutique avant toute généralisation à d'autres matières. Les sections ci-dessous conservent la vision d'ensemble multi-disciplines (le cap), tout en précisant ce qui est réellement en cours de construction (l'étape).
+
 ---
 
 ##  La vision pédagogique : L'étayage dans la ZPD
@@ -15,6 +17,23 @@ Face à l'IA générative, deux pièges menacent les élèves :
 2. **L'interdiction stricte :** Supprimer l'IA sur des tâches complexes (comme le *troubleshooting* technique en anglais) fait basculer l'élève hors de sa **Zone Proximal de Développement (ZPD)**, provoquant blocage et décrochage.
 
 **Notre solution :** Un tuteur IA local bridé par des instructions systèmes strictes et adossé à un **RAG** (Récupération-Génération Augmentée). L'IA n'invente rien, n'hallucine pas et utilise la **maïeutique socratique** : elle guide l'élève par le questionnement sans jamais donner la solution brute.
+
+### Le garde-fou anti-triche : une affaire de RAG, pas seulement de prompt
+
+Un enseignement clé tiré de la conception : **le comportement socratique ne se joue pas uniquement dans l'instruction système, il se joue d'abord dans ce que le RAG est autorisé à récupérer.** Nos documents pédagogiques se répartissent en deux zones :
+
+* **Zone « savoir » (visibilité libre) :** référentiel, cours, notices constructeurs, définitions de concepts. L'IA y puise librement pour expliquer une notion (« qu'est-ce qu'un VLAN ? », « quelle est la tension d'alimentation de ce capteur ? »). Comprendre un concept n'est pas tricher.
+* **Zone « solutions » (visibilité restreinte) :** corrigés, fiches « coup de pouce », réponses attendues. Ces documents sont **exclus de l'index consultable par l'élève** : sans ce filtrage, aucune instruction système ne suffirait, l'IA récupérerait la solution dans son contexte et la divulguerait.
+
+La convention de rangement et la stratégie de découpage (chunking) qui rendent ce garde-fou automatique sont décrites dans **[la spécification d'ingestion](docs/RAG_INGESTION_SPEC.md)**.
+
+### Pourquoi un RAG hybride (BM25 + embeddings) pour CIEL
+
+Le corpus CIEL mêle deux natures de contenu, ce qui justifie une **recherche hybride** :
+* les **embeddings** (recherche sémantique) excellent sur le cours et le référentiel, où la question de l'élève reformule le contenu ;
+* **BM25** (recherche lexicale) est indispensable sur les notices et les TP, saturés de tokens exacts que le sémantique lisse : références de composants (`GP2Y0A41SK0F`), commandes (`no shutdown`), adresses (`192.168.99.10`), valeurs (`4.5 to 5.5 V`).
+
+Un **reranker** pourra être ajouté dans un second temps, uniquement si la pertinence mesurée sur de vraies questions d'élèves se révèle insuffisante. De même, un éventuel **fine-tuning (LoRA)** est réservé au comportement (et non au savoir, qui reste du ressort du RAG), et seulement en dernier recours si l'instruction système « fuit » malgré tout.
 
 ---
 
@@ -28,15 +47,31 @@ Le système est conçu dans une démarche d'économie circulaire en revalorisant
 * **Réseau :** Déploiement sur un réseau local physique indépendant, étanche à Internet (100% conformité RGPD).
 * **Matériel du Labo CIEL :** Architecture multi-GPU (1x RTX 5060 Ti 16 Go, 1x RTX 2060 Super 8 Go, 1x GTX 1070 8 Go) sur une alimentation de 850W.
 
+> ⚙️ **Principe de dimensionnement — un modèle par carte, pas un modèle sur plusieurs cartes.**
+> Sur du matériel grand public (sans NVLink), répartir un gros modèle sur plusieurs GPU introduit une pénalité de communication via le PCIe : un modèle éclaté sur 3 cartes tourne souvent *plus lentement* qu'un modèle tenant entièrement sur une seule. L'architecture retenue fait donc tenir **chaque modèle sur sa propre carte** — ce qui colle parfaitement au concept « un rig = une discipline = son SLM ». Pour la v1 CIEL, **une seule carte 16 Go suffit** : avec 12 élèves qui lisent, réfléchissent et écrivent, la concurrence réelle sur le GPU est de 2 à 4 requêtes en pointe, gérée nativement par `OLLAMA_NUM_PARALLEL`.
+
+> 🗓️ **Note d'approvisionnement :** les plans matériels s'appuient sur des cartes **disponibles aujourd'hui** (RTX 5060 Ti 16 Go) La RTX 5080 Super 24 Go, un temps envisagée, n'est pas retenue à court terme : elle n'est pas encore commercialisée et son calendrier reste incertain (rumeurs glissant vers 2027), dans un contexte de forte hausse des prix de la mémoire GDDR7.
+
 ---
 
 ##  Les Agents Spécialisés Embarqués
 
-Plutôt qu'un modèle généraliste massif, l'infrastructure fait tourner des modèles de taille intermédiaire (SLM) optimisés pour le terrain :
+Plutôt qu'un modèle généraliste massif, l'infrastructure fait tourner des modèles de taille intermédiaire (SLM) optimisés pour le terrain.
+
+> 🔬 **Modèles retenus pour les tests v1 (CIEL).** La phase actuelle compare trois modèles récents, tous disponibles sur Ollama :
+> * **`qwen3:14b`** *(candidat principal)* — dense, licence Apache 2.0, contexte long, bon en raisonnement et en appel d'outils. En Q4 (~9-10 Go), il laisse de la marge VRAM sur une carte 16 Go pour un contexte RAG étendu et le traitement parallèle des élèves.
+> * **`gemma4:12b`** — challenger léger et multimodal (~8 Go en Q4). 
+> * **`mistral-small3.2:24b`** — meilleur potentiel de qualité et function calling natif solide (~15 Go en Q4, contexte 128K). Sur 16 Go, la marge pour le KV-cache devient serrée à plusieurs requêtes parallèles ; à comparer en A/B, éventuellement sur une carte 24 Go. 
+>
+> La recommandation est de **démarrer sur `qwen3:14b`** pour valider tout le pipeline avec de la marge, puis de tester les autres en comparaison.
+
+Les tuteurs de démonstration ci-dessous illustrent la vision multi-disciplines du projet (agents historiques du dépôt). Ils restent des exemples : la v1 se concentre sur un tuteur CIEL unique.
 
 1. **William (Modèle Qwen) :** Agent de DNL (Discipline Non Linguistique) Anglais. Il simule un client subissant une panne informatique (Activité GLPI). Les élèves doivent épuiser les lignes de dialogue en anglais pour obtenir les indices du diagnostic.
-2. **Jarvis (Modèle Mistral-Nemo 12B) :** Expert en Électronique, Systèmes Embarqués, Réseaux et Cybersécurité.
-3. **Ada (Modèle Qwen 3.6 35B) :** Experte en développement (C, C++, Python) et logique mathématique appliquée au numérique.
+2. **Jarvis (Modèle Mistral / Qwen) :** Expert en Électronique, Systèmes Embarqués, Réseaux et Cybersécurité — cœur de cible du Bac Pro CIEL.
+3. **Ada (Modèle Qwen) :** Experte en développement (C, C++, Python) et logique mathématique appliquée au numérique.
+
+> ✏️ *Les noms de modèles de base des agents sont amenés à être alignés sur les modèles de test ci-dessus au fil de la veille technologique (voir la section « Modularité » en fin de document).*
 
 ---
 
@@ -54,7 +89,7 @@ Plutôt qu'un modèle généraliste massif, l'infrastructure fait tourner des mo
 ##  Démarrage Rapide
 
 ### 0. Prérequis
-Disposer d'une machine sous Debian 13 avec les pilotes NVIDIA et Docker installés et carte graphique type Nvidia GF 5060 Ti 16go.
+Disposer d'une machine sous Debian 13 avec les pilotes NVIDIA et Docker installés et une carte graphique de type NVIDIA RTX 5060 Ti 16 Go (ou équivalent 16 Go et plus).
 
 L'installation et la configuration de l'environnement s'effectuent entièrement en ligne de commande depuis le terminal de votre serveur Debian 13. Le parcours est automatisé via trois scripts et commandes clés :
 
@@ -82,7 +117,7 @@ Selon les objectifs de votre séance et les capacités de votre serveur, lancez 
     ```
 
 ### Étape 3 : Chargement interactif des modèles maïeutiques
-Ce script interactif interroge l'enseignant sur la quantité de VRAM globale disponible sur la machine pour adapter la taille des IA. Il télécharge automatiquement les modèles de base appropriés et compile vos tuteurs personnalisés (**Jarvis**, **Ada**, **William**) à partir des `Modelfiles` du projet. (le monde de l'IA évolue rapidement n'hesiter 
+Ce script interactif interroge l'enseignant sur la quantité de VRAM globale disponible sur la machine pour adapter la taille des IA. Il télécharge automatiquement les modèles de base appropriés et compile vos tuteurs personnalisés (**Jarvis**, **Ada**, **William**) à partir des `Modelfiles` du projet.
 
 ```bash
 chmod +x infra/load-models.sh
@@ -91,16 +126,17 @@ chmod +x infra/load-models.sh
 
 ---
 
-Exploitation Pédagogique & RAG (Mémoire Documentaire)
+## Exploitation Pédagogique & RAG (Mémoire Documentaire)
 
 Une fois l'infrastructure démarrée, l'interface graphique est accessible pour les élèves sur le port configuré via Open WebUI.
-Liaison permanente des cours (RAG) :
 
-  Connectez-vous avec votre compte enseignant sur Open WebUI.
+**Préparer le corpus avant l'ingestion :** rangez vos documents selon la convention décrite dans **[rag/RAG_INGESTION_SPEC.md](rag/RAG_INGESTION_SPEC.md)**. C'est ce rangement (dossier + nom de fichier) qui permet de tagger automatiquement chaque document et, surtout, d'isoler les corrigés et fiches « coup de pouce » pour qu'ils ne soient jamais divulgués aux élèves.
 
-  Accédez à la section Knowledge (Connaissances) et téléversez vos documents de cours (PDF, Markdown, notices constructeurs).
+**Liaison permanente des cours (RAG) :**
 
-  Modifiez la configuration de l'agent jarvis ou ada dans l'interface pour lui assigner ce dossier de connaissances.
+  1. Connectez-vous avec votre compte enseignant sur Open WebUI.
+  2. Accédez à la section **Knowledge** (Connaissances) et téléversez vos documents de cours (PDF, Markdown, notices constructeurs) en respectant la séparation « savoir » / « solutions ».
+  3. Modifiez la configuration de l'agent (`jarvis`, `ada`…) dans l'interface pour lui assigner ce dossier de connaissances.
 
 ---
 
@@ -109,4 +145,3 @@ Liaison permanente des cours (RAG) :
 > * **Faites évoluer les modèles (Veille technologique) :** Le monde de l'IA évolue à une vitesse fulgurante. Pour vérifier la taille des modèles et estimer la VRAM nécessaire, consultez la [Librairie Officielle Ollama](https://ollama.com/library) (l'onglet *Tags* donne la taille en Go de chaque version). Pour comparer l'intelligence et les performances des dernières nouveautés, consultez le [Hugging Face Open LLM Leaderboard](https://huggingface.co/spaces/open-llm-leaderboard/open_llm_leaderboard). Il vous suffira ensuite de modifier la première ligne (`FROM nom_du_modele`) dans vos fichiers `.modelfile`.
 > * **Créez vos propres tuteurs :** Vous pouvez cloner un `Modelfile` existant, le renommer (par exemple `Pythagore.modelfile`), ajuster son prompt système pour votre discipline (Maths, Physique, Histoire) et l'ajouter dans le dossier `agents/`.
 > * **Intégration automatique :** Ajoutez simplement la ligne de compilation `docker exec -i ollama-server ollama create votre_nom -f - < ../agents/VotreFichier.modelfile` dans le script `infra/load-models.sh` pour que votre nouvel agent apparaisse directement dans Open WebUI.
-
