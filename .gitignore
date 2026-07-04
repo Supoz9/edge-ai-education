@@ -231,3 +231,14 @@ __marimo__/
 # Fichiers temporaires de téléchargement (keyrings Nvidia, packages CUDA)
 *.deb
 cuda-keyring_*
+
+# ============================================================================
+# corpus ciel - ignore tout sauf la structure vide et le mode d'emploi  
+# ============================================================================
+
+# On ignore tout le contenu du corpus...
+corpus_ciel/**
+# ...sauf la structure vide et le mode d'emploi
+!corpus_ciel/**/
+!corpus_ciel/**/.gitkeep
+!corpus_ciel/README.md
