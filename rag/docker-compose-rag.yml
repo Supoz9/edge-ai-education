@@ -1,0 +1,56 @@
+# docker-compose-rag.yml — OVERLAY ajoutant le service RAG à la stack existante.
+#
+# On n'écrase pas docker-compose.yml : on l'étend, exactement comme l'overlay
+# voice. Le service RAG partage le réseau Docker interne pour parler à Ollama.
+#
+# --- Utilisation (CPU par défaut) ---
+#   docker compose -f infra/docker-compose.yml -f rag/docker-compose-rag.yml build rag
+#   docker compose -f infra/docker-compose.yml -f rag/docker-compose-rag.yml run --rm rag python ingest.py
+#   docker compose -f infra/docker-compose.yml -f rag/docker-compose-rag.yml run --rm rag python search.py "pool DHCP ?"
+#
+# --- Passer en GPU ---
+#   Mettre RAG_BUILD_TARGET=gpu et RAG_DEVICE=cuda dans l'environnement, puis
+#   décommenter la section "deploy.resources" ci-dessous, et rebuild.
+#
+# NB : les chemins sont relatifs à la RACINE du projet (là où on lance compose).
+
+services:
+  rag:
+    build:
+      context: ./rag
+      target: ${RAG_BUILD_TARGET:-cpu}      # cpu (défaut) ou gpu
+    image: edge-rag:${RAG_BUILD_TARGET:-cpu}
+    container_name: rag-ciel
+    environment:
+      # Chemins internes (voir volumes ci-dessous)
+      RAG_CORPUS_DIR: /corpus
+      RAG_CHROMA_DIR: /chroma
+      # CPU par défaut ; mettre "cuda" pour le GPU (avec target gpu)
+      RAG_DEVICE: ${RAG_DEVICE:-cpu}
+      # Pour la future génération de réponse via Ollama (réseau interne)
+      OLLAMA_BASE_URL: http://ollama:11434
+    volumes:
+      # Corpus monté EN LECTURE SEULE (ro) : le conteneur lit vos PDF,
+      # ne les modifie jamais. Sécurité + cohérence.
+      - ./corpus_ciel:/corpus:ro
+      # Index Chroma persistant (survit aux redémarrages)
+      - rag_chroma:/chroma
+      # Cache des poids du modèle d'embedding (évite de re-télécharger BGE-M3)
+      - rag_models:/models_cache
+    networks:
+      - default
+    # --- GPU (décommenter pour la cible gpu) ---
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+volumes:
+  rag_chroma:
+  rag_models:
+
+# Le réseau "default" est celui créé par docker-compose.yml : le service rag
+# y rejoint ollama et open-webui et peut donc les appeler par leur nom de service.
