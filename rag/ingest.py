@@ -1,34 +1,35 @@
 """
-ingest.py — 04/07/26 — @Supoz9 — v1.0
+ingest.py — 04/07/26 — @Supoz9 — v1.5
 
-Ingestion du corpus CIEL dans ChromaDB.
 
+ingest.py — Ingestion du corpus CIEL dans ChromaDB.
+ 
 Parcourt corpus_ciel/, déduit les métadonnées (dossier + nom de fichier),
 découpe (chunking.py), calcule les embeddings BGE-M3, et écrit dans Chroma.
-
+ 
 GARDE-FOU : les documents de type restreint (corrigés, coups de pouce) sont
 par défaut EXCLUS de l'index interrogeable par l'élève (stratégie simple de
 la spec §5). Utiliser --inclure-restreint pour les indexer dans une collection
 séparée (usage avancé, non destiné aux élèves).
-
+ 
 Usage :
     python ingest.py                    # ingère tout le corpus (zone libre)
     python ingest.py --reset            # repart d'un index vierge
     python ingest.py --dry-run          # montre ce qui serait fait, sans écrire
 """
-
+ 
 import argparse
 import sys
 from pathlib import Path
-
+ 
 import config
 from chunking import parse_filename, chunk_text, DocMeta
-
-
+ 
+ 
 def log(msg: str):
     print(f"[ingest] {msg}", flush=True)
-
-
+ 
+ 
 def extract_pdf_text(path: Path) -> str:
     """Extrait le texte d'un PDF. pypdf pour le texte natif ; si vide (scan),
     on avertit (l'OCR n'est pas fait ici — voir README pour la marche à suivre)."""
@@ -37,7 +38,7 @@ def extract_pdf_text(path: Path) -> str:
     except ImportError:
         log("ERREUR : pypdf non installé. `pip install pypdf`")
         sys.exit(1)
-
+ 
     reader = PdfReader(str(path))
     pages = []
     for page in reader.pages:
@@ -47,16 +48,16 @@ def extract_pdf_text(path: Path) -> str:
         log(f"  ⚠️  '{path.name}' semble être un SCAN (aucun texte extrait). "
             f"Il faut l'OCR-iser avant ingestion (voir README §OCR).")
     return text
-
-
+ 
+ 
 def detect_langue(text: str) -> str:
     """Heuristique légère FR/EN sur des mots très fréquents."""
     sample = text[:2000].lower()
     fr = sum(sample.count(w) for w in (" le ", " la ", " des ", " est ", " pour ", " avec "))
     en = sum(sample.count(w) for w in (" the ", " and ", " of ", " is ", " for ", " with "))
     return "en" if en > fr else "fr"
-
-
+ 
+ 
 def iter_documents(corpus_dir: Path):
     """Génère (chemin_pdf, DocMeta) pour chaque PDF conforme du corpus."""
     for dossier, (dtype, dvis) in config.DOSSIER_MAP.items():
@@ -70,16 +71,16 @@ def iter_documents(corpus_dir: Path):
                 log(f"  ⛔ IGNORÉ : {e}")
                 continue
             yield pdf, meta
-
-
+ 
+ 
 def build_embedder():
     """Charge BGE-M3 via sentence-transformers, sur CPU ou GPU selon config."""
     from sentence_transformers import SentenceTransformer
     log(f"Chargement du modèle d'embedding {config.EMBED_MODEL} sur {config.DEVICE}...")
     model = SentenceTransformer(config.EMBED_MODEL, device=config.DEVICE)
     return model
-
-
+ 
+ 
 def main():
     ap = argparse.ArgumentParser(description="Ingestion corpus CIEL -> ChromaDB")
     ap.add_argument("--reset", action="store_true", help="repart d'un index vierge")
@@ -87,22 +88,22 @@ def main():
     ap.add_argument("--inclure-restreint", action="store_true",
                     help="indexe aussi corrigés/coups de pouce (collection séparée, usage avancé)")
     args = ap.parse_args()
-
+ 
     if not config.CORPUS_DIR.is_dir():
         log(f"ERREUR : corpus introuvable à {config.CORPUS_DIR}. "
             f"Vérifiez le montage du volume ou RAG_CORPUS_DIR.")
         sys.exit(1)
-
+ 
     # --- Inventaire + garde-fou ---
     libres, restreints = [], []
     for pdf, meta in iter_documents(config.CORPUS_DIR):
         (restreints if meta.visibilite == "restreinte" else libres).append((pdf, meta))
-
+ 
     log(f"Documents 'libres' (interrogeables par l'élève) : {len(libres)}")
     log(f"Documents 'restreints' (corrigés/aides, EXCLUS par défaut) : {len(restreints)}")
     for _, m in restreints:
         log(f"    🔒 exclu de l'index élève : {m.source}")
-
+ 
     if args.dry_run:
         log("--dry-run : voici le découpage prévu (aucune écriture).")
         for pdf, meta in libres:
@@ -110,25 +111,25 @@ def main():
             n = len(chunk_text(txt, meta.type))
             log(f"  {meta.source}  [{meta.type}] -> {n} chunks")
         return
-
+ 
     # --- Connexion Chroma ---
     import chromadb
     client = chromadb.PersistentClient(path=str(config.CHROMA_DIR))
-
+ 
     if args.reset:
         try:
             client.delete_collection(config.COLLECTION_NAME)
             log(f"Collection '{config.COLLECTION_NAME}' supprimée (--reset).")
         except Exception:
             pass
-
+ 
     collection = client.get_or_create_collection(
         name=config.COLLECTION_NAME,
         metadata={"hnsw:space": "cosine"},
     )
-
+ 
     embedder = build_embedder()
-
+ 
     # --- Ingestion de la zone libre ---
     to_index = list(libres)
     if args.inclure_restreint:
@@ -136,7 +137,7 @@ def main():
             "une collection SÉPARÉE 'ciel_prof' (ne jamais exposer aux élèves).")
         # (Implémentation de la collection prof laissée volontairement en second
         #  temps — voir spec §5 stratégie avancée. On log l'intention ici.)
-
+ 
     total_chunks = 0
     for pdf, meta in to_index:
         text = extract_pdf_text(pdf)
@@ -144,11 +145,17 @@ def main():
             continue
         meta.langue = detect_langue(text)
         chunks = chunk_text(text, meta.type)
-
+ 
         ids, docs, metadatas = [], [], []
         for i, ch in enumerate(chunks):
+            # Garde-fou : on ignore les chunks vides ou non-textuels. Un chunk
+            # vide (extraction PDF ratée, page blanche) fait planter le tokenizer
+            # de BGE-M3 avec "TextEncodeInput must be...". On nettoie en amont.
+            texte = ch.text.strip() if isinstance(ch.text, str) else ""
+            if not texte:
+                continue
             ids.append(f"{meta.source}__c{i:03d}")
-            docs.append(ch.text)
+            docs.append(texte)
             metadatas.append({
                 "discipline": "CIEL",
                 "source": meta.source,
@@ -161,23 +168,47 @@ def main():
                 "contient_code": ch.contient_code,
                 "contient_tableau": ch.contient_tableau,
             })
-
+ 
         if not docs:
             continue
-
-        embeddings = embedder.encode(
-            docs, normalize_embeddings=True, show_progress_bar=False
-        ).tolist()
-
+ 
+        # Encodage robuste : on tente le lot entier ; si un chunk pathologique
+        # fait planter le tokenizer (caractère de contrôle, artefact PDF...),
+        # on retombe sur un encodage un-par-un qui isole et saute le fautif.
+        try:
+            embeddings = embedder.encode(
+                docs, normalize_embeddings=True, show_progress_bar=False
+            ).tolist()
+        except Exception as e:
+            log(f"  ⚠️  encodage par lot échoué pour {meta.source} ({e}); "
+                f"reprise chunk par chunk...")
+            ok_ids, ok_docs, ok_meta, ok_emb = [], [], [], []
+            for j, d in enumerate(docs):
+                try:
+                    emb = embedder.encode(
+                        [d], normalize_embeddings=True, show_progress_bar=False
+                    ).tolist()[0]
+                except Exception:
+                    log(f"       ⛔ chunk ignoré (non encodable) : {ids[j]}")
+                    continue
+                ok_ids.append(ids[j])
+                ok_docs.append(d)
+                ok_meta.append(metadatas[j])
+                ok_emb.append(emb)
+            ids, docs, metadatas, embeddings = ok_ids, ok_docs, ok_meta, ok_emb
+            if not docs:
+                continue
+ 
         collection.upsert(
             ids=ids, documents=docs, metadatas=metadatas, embeddings=embeddings
         )
         total_chunks += len(docs)
         log(f"  ✅ {meta.source} [{meta.type}, {meta.langue}] : {len(docs)} chunks")
-
+ 
     log(f"Terminé. {total_chunks} chunks indexés dans '{config.COLLECTION_NAME}'.")
     log(f"Index persistant : {config.CHROMA_DIR}")
-
-
+ 
+ 
 if __name__ == "__main__":
     main()
+ 

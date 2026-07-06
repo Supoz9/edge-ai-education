@@ -1,19 +1,23 @@
+
 # docker-compose-rag.yml — OVERLAY ajoutant le service RAG à la stack existante.
 #
 # On n'écrase pas docker-compose.yml : on l'étend, exactement comme l'overlay
 # voice. Le service RAG partage le réseau Docker interne pour parler à Ollama.
 #
-# --- Utilisation (CPU par défaut) ---
-#   docker compose -f infra/docker-compose.yml -f rag/docker-compose-rag.yml build rag
-#   docker compose -f infra/docker-compose.yml -f rag/docker-compose-rag.yml run --rm rag python ingest.py
-#   docker compose -f infra/docker-compose.yml -f rag/docker-compose-rag.yml run --rm rag python search.py "pool DHCP ?"
+# --- Utilisation (CPU) ---
+#   docker compose --project-directory . -f infra/docker-compose.yml -f rag/docker-compose-rag.yml build rag
+#   docker compose --project-directory . -f infra/docker-compose.yml -f rag/docker-compose-rag.yml run --rm rag python ingest.py
 #
-# --- Passer en GPU ---
-#   Mettre RAG_BUILD_TARGET=gpu et RAG_DEVICE=cuda dans l'environnement, puis
-#   décommenter la section "deploy.resources" ci-dessous, et rebuild.
+# --- Utilisation (GPU, embedding sur la 2060 Super = GPU 1 par défaut) ---
+#   RAG_BUILD_TARGET=gpu RAG_DEVICE=cuda docker compose --project-directory . \
+#     -f infra/docker-compose.yml -f rag/docker-compose-rag.yml build rag
+#   RAG_BUILD_TARGET=gpu RAG_DEVICE=cuda docker compose --project-directory . \
+#     -f infra/docker-compose.yml -f rag/docker-compose-rag.yml run --rm rag python ingest.py
 #
-# NB : les chemins sont relatifs à la RACINE du projet (là où on lance compose).
-
+#   Pour cibler l'autre carte (5060 Ti) : ajouter RAG_GPU_ID=0 devant la commande.
+#
+# NB : les chemins sont relatifs à la RACINE du projet (--project-directory .).
+ 
 services:
   rag:
     build:
@@ -27,6 +31,8 @@ services:
       RAG_CHROMA_DIR: /chroma
       # CPU par défaut ; mettre "cuda" pour le GPU (avec target gpu)
       RAG_DEVICE: ${RAG_DEVICE:-cpu}
+      # GPU visible par le conteneur (1 = 2060 Super par défaut)
+      NVIDIA_VISIBLE_DEVICES: ${RAG_GPU_ID:-1}
       # Pour la future génération de réponse via Ollama (réseau interne)
       OLLAMA_BASE_URL: http://ollama:11434
     volumes:
@@ -39,18 +45,19 @@ services:
       - rag_models:/models_cache
     networks:
       - default
-    # --- GPU (décommenter pour la cible gpu) ---
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
-
+    # --- Accès GPU (actif ; ignoré si on build/run en cible cpu) ---
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${RAG_GPU_ID:-1}"]
+              capabilities: [gpu]
+ 
 volumes:
   rag_chroma:
   rag_models:
-
+ 
 # Le réseau "default" est celui créé par docker-compose.yml : le service rag
 # y rejoint ollama et open-webui et peut donc les appeler par leur nom de service.
+ 
