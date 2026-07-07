@@ -48,12 +48,12 @@ There is no automated test for this flow — validating a change means actually 
 - **Agent personas are prompt-engineered, not fine-tuned**: each `.modefile` sets a low/moderate `temperature`, a `stop "[USER]"` sequence, and a long `SYSTEM` prompt enforcing Socratic/maieutic tutoring (never handing over a direct answer or corrected code block). When editing a persona's behavior, the `SYSTEM` block is the entire behavior surface — there's no other code path to check. Keep new/edited agents consistent with this constraint (guide via questioning, never emit ready-to-paste solutions) since it's the pedagogical thesis of the whole project, not an incidental style choice.
 - Adding a new subject-specific agent means: (1) create `agents/<Name>.modelfile` (following the existing `FROM` / `PARAMETER` / `SYSTEM` structure), (2) add a corresponding `pull` + `ollama create` pair in `infra/load-models.sh`, per the pattern documented at the end of the README.
 
-## RAG module (`rag/` directory, `rag` branch)
+## RAG module (`rag/` directory)
  
 The `rag/` directory adds an **autonomous RAG pipeline**, separate from Open
-WebUI's built-in RAG. It is developed on the `rag` branch and merged into `main`
-once validated. Unlike the rest of the repo (infra-as-config, no app code), this
-directory **does contain Python application code**.
+WebUI's built-in RAG. Developed on `feature/rag`, merged into `main`. Unlike the
+rest of the repo (infra-as-config, no app code), this directory **does contain
+Python application code**.
  
 ### What it does
 Reads the PDF corpus in `corpus_ciel/` (repo root, git-ignored — real documents
@@ -64,13 +64,17 @@ to bridge Open WebUI is planned but not yet implemented.
  
 ### Files
 - `config.py` — all params, env-driven (`RAG_DEVICE`, `RAG_CORPUS_DIR`, etc.).
-- `chunking.py` — filename-convention parser + type-aware chunking. **CLI blocks
-  and tables are kept unsplittable** (`_looks_like_cli`, `_looks_like_table_row`).
-- `ingest.py` — orchestration + the anti-cheat guardrail.
-- `search.py` — hybrid-search test CLI (this is the dev tool, NOT the student UI).
-- `Dockerfile` — two targets: `cpu` (default) and `gpu`.
-- `docker-compose-rag.yml` — overlay adding the `rag` service (same pattern as
-  the voice overlay).
+- `chunking.py` — filename-convention parser + section-aware chunking. **CLI
+  blocks and tables are kept unsplittable.** Sections (`1.`, `2.`, `Phase 3`…)
+  are split into separate chunks regardless of size.
+- `ingest.py` — orchestration + anti-cheat guardrail + robust encoding (skips
+  non-encodable chunks instead of crashing).
+- `search.py` — hybrid-search test CLI (dev tool, NOT the student UI). Includes
+  a length penalty so short chunks don't pollute the top results.
+- `Dockerfile` — two targets: `cpu` (default) and `gpu`. **`COPY . .` comes
+  BEFORE `pip install torch`** (see piège #4).
+- `docker-compose-rag.yml` — Compose overlay, kept for reference. **NOT the
+  recommended way to run** on this rig (see piège #2).
 ### Critical invariants — do NOT break these
 - **Anti-cheat guardrail is load-bearing.** Documents of type `corrige` and
   `coup-de-pouce` (folders `05_corriges/`, `06_coups_de_pouce/`) MUST stay
@@ -78,28 +82,56 @@ to bridge Open WebUI is planned but not yet implemented.
   and the visibility filtering in `ingest.py` enforce this. Never "helpfully"
   index restricted docs into the student-visible collection.
 - **Double-check on file type.** `parse_filename` cross-validates the folder's
-  implied type against the filename suffix and RAISES on mismatch. This is
-  intentional (prevents a misfiled corrigé from leaking). Don't soften it to a
-  warning.
+  implied type against the filename suffix and RAISES on mismatch. Intentional
+  (prevents a misfiled corrigé from leaking). Don't soften it to a warning.
 - **Unsplittable blocks.** CLI command blocks (Cisco IOS, shell) and address
-  tables must never be chunk-split. If you touch `chunking.py`, keep the
-  `flush()`-on-boundary logic that isolates code/table blocks as standalone
-  chunks.
+  tables must never be chunk-split.
 - **Filename convention** is `<activite>_<seq>_<slug>_<type>` where `<seq>` may
   be a full sequence (`sq3`, typical for `cours`) OR sequence+activity
-  (`sq2a6`, typical for `tp`/`corrige`). Both are valid — don't "normalize" one
-  into the other.
-### Running it (from repo root)
+  (`sq2a6`, typical for `tp`/`corrige`). Both are valid — don't "normalize".
+### Running it — IMPORTANT: build/run workarounds required on this rig
+ 
+**Do NOT use `docker compose build` / `docker compose run` here** — BuildKit is
+misconfigured on this machine and produces an empty build context (COPY copies
+nothing, `ingest.py` ends up missing from the image). Use the legacy builder and
+`docker run` directly:
+ 
 ```bash
-# build
-docker compose -f infra/docker-compose.yml -f rag/docker-compose-rag.yml build rag
-# ingest (incremental: just re-run after adding docs; --reset to rebuild)
-docker compose -f infra/docker-compose.yml -f rag/docker-compose-rag.yml run --rm rag python ingest.py
-# test retrieval
-docker compose -f infra/docker-compose.yml -f rag/docker-compose-rag.yml run --rm rag python search.py "pool DHCP ?"
+# BUILD (legacy builder mandatory; --target gpu or cpu)
+DOCKER_BUILDKIT=0 docker build --target gpu -t edge-rag:gpu ./rag
+# verify the image actually contains the code:
+docker run --rm edge-rag:gpu ls /app     # must list ingest.py, chunking.py...
+ 
+# INGEST (embedding on GPU 1 = 2060 Super; HF_HUB_DISABLE_XET mandatory)
+docker run --rm --gpus '"device=1"' \
+  -v ~/Projets/edge-ai-education/corpus_ciel:/corpus:ro \
+  -v edge-ai-education_rag_chroma:/chroma \
+  -v edge-ai-education_rag_models:/models_cache \
+  -e RAG_DEVICE=cuda -e RAG_CORPUS_DIR=/corpus -e RAG_CHROMA_DIR=/chroma \
+  -e HF_HUB_DISABLE_XET=1 \
+  edge-rag:gpu python ingest.py
+ 
+# SEARCH (same flags, minus the corpus mount)
+docker run --rm --gpus '"device=1"' \
+  -v edge-ai-education_rag_chroma:/chroma \
+  -v edge-ai-education_rag_models:/models_cache \
+  -e RAG_DEVICE=cuda -e RAG_CHROMA_DIR=/chroma -e HF_HUB_DISABLE_XET=1 \
+  edge-rag:gpu python search.py "à quoi sert une boucle ?"
 ```
-There is still no automated test suite: validating a change means running
-`ingest.py --dry-run` and a few `search.py` queries and eyeballing the retrieved
-chunks. CPU embedding is the default; GPU is opt-in via `RAG_BUILD_TARGET=gpu`
-`RAG_DEVICE=cuda`.
+ 
+### Pièges connus (rig-specific; wasted hours — don't re-discover them)
+1. **`DOCKER_BUILDKIT=0` mandatory.** BuildKit/buildx not installed → empty
+   build context → `can't open file '/app/ingest.py'`. Legacy builder works.
+2. **`docker run` direct, not `docker compose run`.** Compose re-triggers a
+   BuildKit rebuild at run time and re-breaks `/app`.
+3. **`HF_HUB_DISABLE_XET=1` mandatory at ingest.** HF's "Xet" download protocol
+   hangs on this network; the BGE-M3 download never completes without it.
+4. **`COPY . .` before `pip install torch` in the Dockerfile.** With the legacy
+   builder + multi-stage, a trailing COPY may not execute. Don't re-invert.
+5. `version is obsolete` warning and `Failed to send telemetry event` messages
+   are harmless.
+No automated test suite: validate a change with `ingest.py --dry-run` and a few
+`search.py` queries, eyeballing the retrieved chunks. GPU embedding runs on the
+2060 Super (device=1) to keep the 5060 Ti free for Ollama; CPU is the fallback
+(`--target cpu`, `RAG_DEVICE=cpu`) for machines without a spare GPU.
  

@@ -145,3 +145,36 @@ Une fois l'infrastructure démarrée, l'interface graphique est accessible pour 
 > * **Faites évoluer les modèles (Veille technologique) :** Le monde de l'IA évolue à une vitesse fulgurante. Pour vérifier la taille des modèles et estimer la VRAM nécessaire, consultez la [Librairie Officielle Ollama](https://ollama.com/library) (l'onglet *Tags* donne la taille en Go de chaque version). Pour comparer l'intelligence et les performances des dernières nouveautés, consultez le [Hugging Face Open LLM Leaderboard](https://huggingface.co/spaces/open-llm-leaderboard/open_llm_leaderboard). Il vous suffira ensuite de modifier la première ligne (`FROM nom_du_modele`) dans vos fichiers `.modelfile`.
 > * **Créez vos propres tuteurs :** Vous pouvez cloner un `Modelfile` existant, le renommer (par exemple `Pythagore.modelfile`), ajuster son prompt système pour votre discipline (Maths, Physique, Histoire) et l'ajouter dans le dossier `agents/`.
 > * **Intégration automatique :** Ajoutez simplement la ligne de compilation `docker exec -i ollama-server ollama create votre_nom -f - < ../agents/VotreFichier.modelfile` dans le script `infra/load-models.sh` pour que votre nouvel agent apparaisse directement dans Open WebUI.
+
+## Module RAG autonome (`rag/`)
+ 
+Au-delà du RAG natif d'Open WebUI, le projet dispose désormais d'un **pipeline
+RAG autonome** dédié, dans le dossier [`rag/`](rag/README.md). Il donne un
+contrôle complet sur la façon dont les documents de cours sont découpés,
+indexés et recherchés — là où le RAG intégré reste une boîte noire.
+ 
+Ce pipeline met en œuvre concrètement les principes décrits plus haut :
+ 
+* **Recherche hybride** dense + lexical, via l'embedding multilingue **BGE-M3**
+  (FR/EN) et une base vectorielle **ChromaDB** persistante. Le sémantique gère
+  les questions reformulées, le lexical rattrape les termes exacts (commandes,
+  adresses IP, références de composants).
+* **Garde-fou anti-triche automatique** : les corrigés et fiches « coup de
+  pouce » (rangés dans `corpus_ciel/05_corriges/` et `06_coups_de_pouce/`) sont
+  exclus de l'index consultable par l'élève. Ils ne peuvent jamais remonter
+  dans une réponse. Une double vérification (dossier + nom de fichier) refuse
+  l'ingestion d'un corrigé mal rangé plutôt que de risquer une fuite.
+* **Découpage intelligent** : respect des sections de cours, et surtout blocs de
+  commandes (CLI Cisco, shell) et tableaux gardés **insécables** — un élève qui
+  cherche une commande la retrouve entière, pas coupée en deux.
+* **Déploiement Docker**, embedding sur GPU dédié (ou CPU en repli sur du
+  matériel plus modeste), corpus monté en lecture seule, index persistant.
+L'organisation du corpus, la convention de nommage et la stratégie de découpage
+sont spécifiées dans **[rag/RAG_INGESTION_SPEC.md](rag/RAG_INGESTION_SPEC.md)**.
+L'installation, les commandes et les points de vigilance propres au déploiement
+sont détaillés dans **[rag/README.md](rag/README.md)**.
+ 
+> 🧪 Une expérimentation **reranker** (branche `feature/reranker`) vise à
+> resserrer encore la pertinence des résultats ; elle sera intégrée si les
+> mesures sur de vraies questions d'élèves en montrent le bénéfice.
+ 
