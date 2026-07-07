@@ -1,0 +1,10 @@
+# Dépendances du module RAG Edge-IA CIEL
+# Versions épinglées en minor pour la reproductibilité ; ajustez si besoin.
+
+chromadb>=0.5,<0.6
+sentence-transformers>=3.0,<4.0
+pypdf>=4.0,<6.0
+
+# sentence-transformers tire torch. Par défaut, l'image installe la version CPU
+# (voir Dockerfile). Pour le GPU, on utilise l'image de base CUDA (voir Dockerfile,
+# cible "gpu") qui fournit un torch compatible CUDA.

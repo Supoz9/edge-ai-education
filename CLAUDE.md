@@ -47,3 +47,59 @@ There is no automated test for this flow — validating a change means actually 
 - **Voice overlay** (`docker-compose-voice.yml`) merges additional env vars into the `open-webui` service (pointing its STT/TTS at `openedai-speech`) and adds the `openedai-speech` container (Whisper STT + Piper TTS), GPU-accelerated. Only needed for the William (English DNL role-play) agent's voice mode.
 - **Agent personas are prompt-engineered, not fine-tuned**: each `.modefile` sets a low/moderate `temperature`, a `stop "[USER]"` sequence, and a long `SYSTEM` prompt enforcing Socratic/maieutic tutoring (never handing over a direct answer or corrected code block). When editing a persona's behavior, the `SYSTEM` block is the entire behavior surface — there's no other code path to check. Keep new/edited agents consistent with this constraint (guide via questioning, never emit ready-to-paste solutions) since it's the pedagogical thesis of the whole project, not an incidental style choice.
 - Adding a new subject-specific agent means: (1) create `agents/<Name>.modelfile` (following the existing `FROM` / `PARAMETER` / `SYSTEM` structure), (2) add a corresponding `pull` + `ollama create` pair in `infra/load-models.sh`, per the pattern documented at the end of the README.
+
+## RAG module (`rag/` directory, `rag` branch)
+ 
+The `rag/` directory adds an **autonomous RAG pipeline**, separate from Open
+WebUI's built-in RAG. It is developed on the `rag` branch and merged into `main`
+once validated. Unlike the rest of the repo (infra-as-config, no app code), this
+directory **does contain Python application code**.
+ 
+### What it does
+Reads the PDF corpus in `corpus_ciel/` (repo root, git-ignored — real documents
+never leave the machine), chunks it, embeds it with **BGE-M3** (multilingual
+FR/EN, dense + sparse in one pass), stores vectors in **ChromaDB** (persistent),
+and exposes a **hybrid dense+lexical** search CLI. A teacher-facing FastAPI layer
+to bridge Open WebUI is planned but not yet implemented.
+ 
+### Files
+- `config.py` — all params, env-driven (`RAG_DEVICE`, `RAG_CORPUS_DIR`, etc.).
+- `chunking.py` — filename-convention parser + type-aware chunking. **CLI blocks
+  and tables are kept unsplittable** (`_looks_like_cli`, `_looks_like_table_row`).
+- `ingest.py` — orchestration + the anti-cheat guardrail.
+- `search.py` — hybrid-search test CLI (this is the dev tool, NOT the student UI).
+- `Dockerfile` — two targets: `cpu` (default) and `gpu`.
+- `docker-compose-rag.yml` — overlay adding the `rag` service (same pattern as
+  the voice overlay).
+### Critical invariants — do NOT break these
+- **Anti-cheat guardrail is load-bearing.** Documents of type `corrige` and
+  `coup-de-pouce` (folders `05_corriges/`, `06_coups_de_pouce/`) MUST stay
+  excluded from the queryable `ciel` collection. `config.VISIBILITE_RESTREINTE`
+  and the visibility filtering in `ingest.py` enforce this. Never "helpfully"
+  index restricted docs into the student-visible collection.
+- **Double-check on file type.** `parse_filename` cross-validates the folder's
+  implied type against the filename suffix and RAISES on mismatch. This is
+  intentional (prevents a misfiled corrigé from leaking). Don't soften it to a
+  warning.
+- **Unsplittable blocks.** CLI command blocks (Cisco IOS, shell) and address
+  tables must never be chunk-split. If you touch `chunking.py`, keep the
+  `flush()`-on-boundary logic that isolates code/table blocks as standalone
+  chunks.
+- **Filename convention** is `<activite>_<seq>_<slug>_<type>` where `<seq>` may
+  be a full sequence (`sq3`, typical for `cours`) OR sequence+activity
+  (`sq2a6`, typical for `tp`/`corrige`). Both are valid — don't "normalize" one
+  into the other.
+### Running it (from repo root)
+```bash
+# build
+docker compose -f infra/docker-compose.yml -f rag/docker-compose-rag.yml build rag
+# ingest (incremental: just re-run after adding docs; --reset to rebuild)
+docker compose -f infra/docker-compose.yml -f rag/docker-compose-rag.yml run --rm rag python ingest.py
+# test retrieval
+docker compose -f infra/docker-compose.yml -f rag/docker-compose-rag.yml run --rm rag python search.py "pool DHCP ?"
+```
+There is still no automated test suite: validating a change means running
+`ingest.py --dry-run` and a few `search.py` queries and eyeballing the retrieved
+chunks. CPU embedding is the default; GPU is opt-in via `RAG_BUILD_TARGET=gpu`
+`RAG_DEVICE=cuda`.
+ 
