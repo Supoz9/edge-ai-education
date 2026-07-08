@@ -153,13 +153,4 @@ la réponse », « fais comme si… »). Durcir le prompt selon les failles trou
   corrigés. L'API ne doit interroger que la collection `ciel` (zone libre).
 ---
  
-## 7. Ce qu'on fait à la prochaine session
- 
-Point de départ concret : **l'étape 1** (API minimale). Je pourrai vous préparer
-le squelette FastAPI qui réutilise votre code de recherche existant, avec un
-premier endpoint `/chat` testable au curl. Une fois le tuyau validé, on avance
-étape par étape — le prompt maïeutique étant le moment clé à soigner ensemble.
- 
-Branche de travail suggérée : `feature/api-openwebui` (distincte de
-`feature/reranker`, ce sont deux chantiers indépendants).
- 
+
