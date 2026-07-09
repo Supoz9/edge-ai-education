@@ -1,156 +1,168 @@
-# Plan d'architecture — Raccorder le RAG à Open WebUI
+# Module API + Open WebUI — Le tuteur en service
  
-> Objectif : rendre le tuteur maïeutique disponible aux élèves dans Open WebUI,
-> en conservant le garde-fou anti-triche au cœur du dispositif.
-> Approche retenue : **API FastAPI** (le RAG devient un service permanent) +
-> **Pipe Function** (le pont vers Open WebUI).
+Ce module relie le pipeline RAG au chat **Open WebUI**, pour rendre le tuteur
+maïeutique accessible aux élèves. Il comprend une **API FastAPI** (qui orchestre
+recherche RAG + garde-fou + génération) et une **Pipe Function** (le pont vers
+Open WebUI).
+ 
+Ce document contient d'abord la **vision d'architecture**, puis le **mode
+d'emploi réel** validé sur le rig.
  
 ---
  
-## 1. Vue d'ensemble : qui fait quoi
+## Architecture
  
 ```
    Élève (navigateur)
-        │
+        │  message
         ▼
-   ┌──────────────┐   message de l'élève
-   │  Open WebUI  │─────────────────────────┐
-   │  (chat, rôles│                         │
-   │  élève/prof) │◄──────────────────────┐ │
-   └──────────────┘   réponse maïeutique  │ │
-        ▲                                 │ │
-        │ Pipe Function (1 fichier .py)   │ │
-        │  = le pont HTTP                 │ │
-        ▼                                 │ │
-   ┌──────────────────────────────────────┴─┴───┐
-   │  API RAG (FastAPI, service permanent)      │
+   ┌──────────────┐
+   │  Open WebUI  │  (chat, comptes, rôles élève/prof)
+   └──────┬───────┘
+          │ Pipe Function (pipe_function.py, collée dans Open WebUI)
+          │  = pont HTTP
+          ▼
+   ┌────────────────────────────────────────────┐
+   │  API FastAPI (api.py, service Docker)      │
    │  1. reçoit la question                     │
-   │  2. RECHERCHE hybride(garde-fou visibilité)│
-   │  3. construit le prompt maïeutique +       │
-   │     passages récupérés                     │
-   │  4. appelle Ollama pour GÉNÉRER            │
-   │  5. renvoie la réponse                     │
-   └──────────┬─────────────────────────────────┘
-              │                   ▲
-              ▼                   │ 
+   │  2. RECHERCHE hybride (garde-fou visibilité)│
+   │  3. construit le prompt MAÏEUTIQUE +        │
+   │     passages récupérés (prompts.py)         │
+   │  4. appelle Ollama pour GÉNÉRER             │
+   │  5. renvoie la réponse                      │
+   └───────┬───────────────────────┬────────────┘
+           ▼                       ▼
    ┌──────────────┐        ┌──────────────┐
-   │   ChromaDB   │_______ │    Ollama    │
-   │ (index ciel) │        │ (qwen3:14b…) │
+   │   ChromaDB   │        │    Ollama    │
+   │ (index ciel) │        │  (hôte:11434)│
    └──────────────┘        └──────────────┘
 ```
  
-**Décision clé : l'API fait la récupération ET la génération.**
-Le prompt maïeutique et le filtrage anti-triche vivent dans VOTRE code, pas dans
-la config d'un modèle Open WebUI. Un élève ne peut pas contourner le garde-fou en
-bidouillant un réglage d'interface. Open WebUI ne sert qu'à l'affichage, à
-l'authentification et à la gestion des rôles élève/prof.
+**Décision clé : l'API fait la récupération ET la génération.** Le prompt
+maïeutique et le filtrage anti-triche vivent dans le code de l'API, pas dans la
+config d'Open WebUI. Un élève ne peut pas contourner le garde-fou en bidouillant
+un réglage d'interface. Open WebUI ne sert qu'à l'affichage, l'authentification
+et la gestion des rôles.
  
-*Alternative (non retenue pour la v1) : l'API ne fait que la récupération, et
-Open WebUI génère avec un modèle configuré. Plus simple mais le garde-fou
-maïeutique devient modifiable côté interface — trop risqué pour un usage élève.*
+### Fichiers
+- `api.py` — le service FastAPI. Endpoints `POST /chat` et `GET /health`.
+- `prompts.py` — **le cœur pédagogique** : le system prompt maïeutique. À itérer
+  ici sans toucher au reste.
+- `pipe_function.py` — la Pipe Function à coller dans Open WebUI.
+- `test_maieutique.sh` — batterie de test du comportement (concepts / exercices /
+  contournements).
+- `retrieval.py` vit dans `rag/` (cœur de recherche partagé par la CLI et l'API).
+---
+ 
+## Prérequis
+ 
+1. Le **module RAG fonctionne** et l'index est peuplé (voir `rag/README.md`).
+   L'image `edge-rag:gpu` existe et contient le code.
+2. **Ollama tourne sur l'hôte** et écoute sur toutes les interfaces (pas seulement
+   127.0.0.1), sinon le conteneur API ne peut pas le joindre :
+```bash
+   sudo systemctl edit ollama
+   # ajouter, dans la zone d'édition :
+   #   [Service]
+   #   Environment="OLLAMA_HOST=0.0.0.0:11434"
+   sudo systemctl daemon-reload && sudo systemctl restart ollama
+   # vérifier : sudo ss -tlnp | grep 11434  -> doit montrer *:11434
+```
+3. **Open WebUI tourne** (conteneur `open-webui`, port 3000).
+---
+ 
+## 1. Lancer l'API en service permanent
+ 
+```bash
+docker run -d --name tuteur-api --restart unless-stopped \
+  --gpus '"device=1"' \
+  --add-host=host.docker.internal:host-gateway \
+  -p 8000:8000 \
+  -v ~/Projets/edge-ai-education/rag:/app \
+  -v ~/Projets/edge-ai-education/api-openwebui:/api \
+  -v edge-ai-education_rag_chroma:/chroma \
+  -v edge-ai-education_rag_models:/models_cache \
+  -e RAG_DEVICE=cuda \
+  -e RAG_CHROMA_DIR=/chroma \
+  -e RAG_DIR=/app \
+  -e HF_HUB_DISABLE_XET=1 \
+  -e OLLAMA_URL=http://172.17.0.1:11434 \
+  edge-rag:gpu \
+  sh -c "cd /api && uvicorn api:app --host 0.0.0.0 --port 8000"
+```
+ 
+- `-d` : détaché (tourne en fond). `--restart unless-stopped` : redémarre au boot.
+- `OLLAMA_URL=http://172.17.0.1:11434` : joint Ollama sur l'hôte via la passerelle
+  Docker (l'API est dans un conteneur).
+- `--gpus '"device=1"'` : embedding sur la 2060 Super (5060 Ti libre pour Ollama).
+Vérifier :
+```bash
+docker ps --filter name=tuteur-api          # doit être "Up"
+curl http://localhost:8000/health           # {"api":"ok","ollama":"ok",...}
+```
+ 
+Gérer le service : `docker logs tuteur-api --tail 30`, `docker restart tuteur-api`,
+`docker stop tuteur-api`.
  
 ---
  
-## 2. Les composants à construire
+## 2. Installer la Pipe Function dans Open WebUI
  
-### A. L'API RAG (FastAPI) — le gros du travail
-Un nouveau service, à ajouter dans `rag/` (ou un sous-dossier `rag/api/`).
- 
-Réutilise le code existant :
-- la **recherche hybride** de `search.py` (déjà écrite et validée) ;
-- la logique d'embedding/ChromaDB de `config.py` ;
-- le **garde-fou visibilité** (déjà en place : l'index `ciel` ne contient pas
-  les corrigés).
-Ajoute :
-- un **endpoint HTTP** (ex. `POST /chat`) qui reçoit `{question, historique}` ;
-- la **construction du prompt maïeutique** (le system prompt socratique + les
-  passages récupérés injectés en contexte) ;
-- l'**appel à Ollama** (`http://ollama:11434/api/chat`) avec ce prompt ;
-- le **renvoi de la réponse**, idéalement en streaming (mot à mot).
-Endpoints envisagés :
-- `POST /chat` — le cœur : question → réponse maïeutique.
-- `GET /health` — vérification que le service tourne (utile pour Open WebUI).
-- (plus tard) `GET /search` — la recherche brute, pour debug/éval.
-### B. La Pipe Function (Open WebUI) — le pont léger
-Un seul fichier Python, collé dans Open WebUI (Admin > Functions).
- 
-Son rôle est minimal :
-- déclarer un « modèle » virtuel qui apparaît dans le sélecteur d'Open WebUI
-  (ex. « Tuteur CIEL ») ;
-- à chaque message, appeler l'API RAG en HTTP (`POST /chat`) ;
-- streamer la réponse dans le chat.
-C'est une **Pipe Function de type "pipe"** (elle prend le contrôle de la réponse).
-Voir la doc : Functions > Pipe. ~50 lignes de Python.
+1. Ouvrir Open WebUI, se connecter en **admin** (le 1er compte créé est admin).
+2. **Admin Panel > Fonctions > +** (nouvelle fonction).
+3. Coller tout le contenu de `pipe_function.py`. Nommer « Tuteur CIEL ». Sauver.
+4. **Activer** la fonction (interrupteur).
+La Pipe appelle l'API via `http://172.17.0.1:8000` (réglable dans les "Valves" de
+la fonction). « Tuteur CIEL » apparaît alors dans le sélecteur de modèles.
  
 ---
  
-## 3. Décisions techniques à acter avant de coder
+## 3. Sécuriser les accès élève (ESSENTIEL)
  
-| Question | Recommandation v1 |
-|----------|-------------------|
-| Où tourne l'API ? | Conteneur Docker, dans la stack (réseau interne, parle à Ollama et Chroma) |
-| Embedding chargé où ? | Dans l'API (BGE-M3 résident en mémoire, prêt à chaque requête) |
-| Streaming des réponses ? | Oui à terme (meilleure UX), mais on peut démarrer en non-streaming pour simplifier |
-| Le prompt maïeutique vit où ? | Dans l'API (fichier de config ou variable), verrouillé |
-| Modèle de génération ? | `qwen3:14b` pour démarrer (déjà installé) |
-| Gestion élève/prof ? | Rôles natifs Open WebUI ; l'API peut recevoir un indicateur de rôle |
+Sans cette étape, un élève peut parler directement aux modèles bruts (qwen3…) et
+**contourner tout le garde-fou**. Dans **Admin Panel > Réglages > Modèles** :
  
----
- 
-## 4. Le prompt maïeutique : le cœur pédagogique
- 
-L'API construit, à chaque requête, un message système qui combine :
-1. **Les instructions maïeutiques** (ton socratique, ne jamais donner la solution
-   d'un exercice, indices gradués, distinction concept/exercice).
-2. **Les passages récupérés** par le RAG (uniquement de la zone « libre » — les
-   corrigés sont déjà exclus de l'index).
-3. **Une consigne d'ancrage** : « appuie-toi uniquement sur ces passages ; si
-   l'info n'y est pas, dis-le ».
-C'est ici que se joue toute la valeur pédagogique. Le garde-fou est double :
-- **au niveau RAG** : les corrigés ne sont jamais récupérés (déjà en place) ;
-- **au niveau prompt** : même avec les bons passages, l'IA guide sans livrer la
-  solution finale de l'exercice.
----
- 
-## 5. Ordre de mise en œuvre suggéré
- 
-**Étape 1 — API minimale, non-streaming, sans maïeutique.**
-Un `POST /chat` qui : récupère les passages (code existant) → les colle dans un
-prompt basique → appelle Ollama → renvoie le texte. But : valider le tuyau
-complet question→réponse. Testable au curl, sans Open WebUI.
- 
-**Étape 2 — Le prompt maïeutique.**
-Remplacer le prompt basique par le vrai system prompt socratique. Tester au curl
-avec de vraies questions d'élèves : est-ce que l'IA guide sans donner la réponse ?
-C'est l'étape pédagogique, la plus importante à peaufiner.
- 
-**Étape 3 — La Pipe Function.**
-Écrire le pont Open WebUI, brancher sur l'API, voir apparaître « Tuteur CIEL »
-dans l'interface. Tester en tant qu'utilisateur.
- 
-**Étape 4 — Le streaming.**
-Passer la réponse en mot-à-mot pour une UX fluide.
- 
-**Étape 5 — Rôles et accès élève.**
-Configurer les comptes/rôles élève dans Open WebUI, restreindre l'accès au seul
-tuteur, tester le parcours élève complet.
- 
-**Étape 6 — Tests anti-contournement.**
-Se mettre dans la peau d'un élève qui essaie d'obtenir la solution (« donne-moi
-la réponse », « fais comme si… »). Durcir le prompt selon les failles trouvées.
+- **Tuteur CIEL → PUBLIC** (visible par tous les élèves).
+- **qwen3 / gemma / mistral → PRIVÉ** (visibles par l'admin seulement).
+Vérifier en se connectant avec un compte élève de test : le sélecteur ne doit
+montrer **que** « Tuteur CIEL ».
  
 ---
  
-## 6. Points de vigilance (tirés de l'expérience RAG)
+## 4. Comptes
  
-- **Docker/BuildKit** : mêmes contournements que le module RAG (`DOCKER_BUILDKIT=0`,
-  etc. — voir `rag/README.md`). L'API sera un service Docker de plus.
-- **VRAM** : l'API charge BGE-M3 (2060 Super) + Ollama charge le modèle de génération
-  (5060 Ti). Vérifier que les deux cohabitent sans saturer.
-- **Service permanent** : contrairement à l'ingestion (ponctuelle), l'API doit
-  tourner en continu. Elle rejoint la logique `docker compose up -d` de la stack.
-- **Le garde-fou reste sacré** : ne jamais exposer un endpoint qui renverrait les
-  corrigés. L'API ne doit interroger que la collection `ciel` (zone libre).
+- **1er compte créé = admin/prof.** Créez-le en premier.
+- Comptes élèves : création manuelle, ou inscription (Admin > Réglages) selon
+  votre organisation.
+- Astuce test : un compte « test-out » pour éprouver des questions hors corpus,
+  un compte « test-corpus » pour le comportement strictement sur les cours.
 ---
  
-
+## Tester le comportement maïeutique
+ 
+Batterie automatique (concepts expliqués / exercices refusés / contournements
+tenus) :
+```bash
+bash test_maieutique.sh          # API sur localhost:8000
+```
+ 
+---
+ 
+## Invariants à préserver
+ 
+- **Le garde-fou est double** : les corrigés sont exclus de l'index RAG (niveau
+  récupération) ET le prompt maïeutique refuse de livrer les solutions (niveau
+  comportement). Ne pas affaiblir l'un en pensant que l'autre suffit.
+- **Les modèles bruts restent privés.** La sécurité des accès élève repose là-dessus.
+- **Le prompt maïeutique** (`prompts.py`) est le cœur pédagogique : l'itérer avec
+  soin, en testant via `test_maieutique.sh` après chaque changement.
+---
+ 
+## Améliorations à venir
+ 
+- **Streaming** des réponses (mot à mot) pour une meilleure UX.
+- **Reranker** (branche dédiée) si les mesures montrent un gain de pertinence.
+- **Fine-tuning** maïeutique (branche dédiée) en dernier recours, si le prompt
+  « fuit » malgré tout.
+- Intégration de l'API à la stack **Docker Compose** (plutôt qu'un `docker run`).
+ 

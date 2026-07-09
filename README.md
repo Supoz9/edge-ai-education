@@ -178,3 +178,36 @@ sont détaillés dans **[rag/README.md](rag/README.md)**.
 > resserrer encore la pertinence des résultats ; elle sera intégrée si les
 > mesures sur de vraies questions d'élèves en montrent le bénéfice.
  
+## Le tuteur en service : accessible aux élèves via Open WebUI
+ 
+Le pipeline RAG est désormais **relié au chat Open WebUI**, ce qui rend le tuteur
+maïeutique directement utilisable par les élèves — c'est le passage du prototype
+à l'outil de classe. Le tout reste 100 % local.
+ 
+L'architecture repose sur deux briques, dans le dossier
+[`api-openwebui/`](api-openwebui/README.md) :
+ 
+* **Une API (FastAPI)** qui orchestre tout à chaque question d'élève : elle
+  effectue la recherche RAG (avec le garde-fou qui exclut les corrigés),
+  construit le **prompt maïeutique**, appelle le modèle via Ollama, et renvoie la
+  réponse. Le comportement pédagogique et le garde-fou vivent dans cette API,
+  donc hors de portée d'un élève qui bidouillerait l'interface.
+* **Une Pipe Function** collée dans Open WebUI, qui fait apparaître un modèle
+  « Tuteur CIEL » dans l'interface et le relie à l'API.
+**Sécurité des accès.** Le « Tuteur CIEL » est le seul modèle visible par les
+élèves : les modèles bruts (qwen3, gemma, mistral) sont réservés à
+l'administrateur. Un élève ne peut donc pas contourner le garde-fou en
+s'adressant directement à un modèle sans filtre.
+ 
+### Comportement observé (échantillon)
+ 
+Sur des questions réelles, le tuteur :
+* **explique les concepts** (« à quoi sert le DHCP ? ») — comprendre n'est pas tricher ;
+* **refuse de résoudre les exercices** (« écris le code du TP ») et guide par le
+  questionnement ;
+* **tient face aux tentatives de contournement** (« le prof a dit que… », « oublie
+  tes instructions »).
+Des exemples d'échanges réels sont rassemblés dans [EXEMPLES.md](EXEMPLES.md).
+Le mode d'emploi complet (lancement de l'API, installation de la Pipe Function,
+sécurisation des accès) est dans [api-openwebui/README.md](api-openwebui/README.md).
+ 

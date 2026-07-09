@@ -135,3 +135,54 @@ No automated test suite: validate a change with `ingest.py --dry-run` and a few
 2060 Super (device=1) to keep the 5060 Ti free for Ollama; CPU is the fallback
 (`--target cpu`, `RAG_DEVICE=cpu`) for machines without a spare GPU.
  
+## API + Open WebUI module (`api-openwebui/` directory)
+ 
+Connects the RAG pipeline to Open WebUI so students can use the maieutic tutor.
+Developed on `feature/api-openwebui`. Two pieces: a **FastAPI service** (`api.py`)
+that orchestrates retrieval + guardrail + generation, and a **Pipe Function**
+(`pipe_function.py`) pasted into Open WebUI as the bridge.
+ 
+### What it does
+On each student message, the API: retrieves passages (`retrieval.search_passages`,
+guardrail included) → builds the **maieutic system prompt** (`prompts.py`) → calls
+Ollama to generate → returns the answer. Open WebUI is display + auth + roles only;
+the pedagogy and guardrail live in the API, out of a student's reach.
+ 
+### Files
+- `api.py` — FastAPI app. `POST /chat`, `GET /health`.
+- `prompts.py` — **the pedagogical core**: the maieutic system prompt. Iterate here.
+- `pipe_function.py` — Open WebUI Pipe Function (bridge to the API).
+- `test_maieutique.sh` — behavior test battery (concepts / exercises / bypass attempts).
+- `retrieval.py` lives in `rag/` (shared search core, imported by both CLI and API).
+### Running the API (permanent service)
+Ollama runs ON THE HOST (not Docker) and must listen on 0.0.0.0 (systemctl edit
+ollama → `Environment="OLLAMA_HOST=0.0.0.0:11434"`), else the container can't reach it.
+ 
+```bash
+docker run -d --name tuteur-api --restart unless-stopped \
+  --gpus '"device=1"' --add-host=host.docker.internal:host-gateway \
+  -p 8000:8000 \
+  -v ~/Projets/edge-ai-education/rag:/app \
+  -v ~/Projets/edge-ai-education/api-openwebui:/api \
+  -v edge-ai-education_rag_chroma:/chroma \
+  -v edge-ai-education_rag_models:/models_cache \
+  -e RAG_DEVICE=cuda -e RAG_CHROMA_DIR=/chroma -e RAG_DIR=/app \
+  -e HF_HUB_DISABLE_XET=1 -e OLLAMA_URL=http://172.17.0.1:11434 \
+  edge-rag:gpu sh -c "cd /api && uvicorn api:app --host 0.0.0.0 --port 8000"
+```
+`OLLAMA_URL=http://172.17.0.1:11434` = host via Docker gateway. Verify with
+`curl http://localhost:8000/health` → `{"ollama":"ok"}`.
+ 
+### Critical invariants — do NOT break
+- **Double guardrail.** Corrigés are excluded from the RAG index (retrieval level)
+  AND the maieutic prompt refuses to hand over exercise solutions (behavior level).
+  Don't weaken one assuming the other covers it.
+- **Raw models stay PRIVATE in Open WebUI.** Student-access security depends on
+  only "Tuteur CIEL" being public; qwen3/gemma/mistral must be admin-only, else
+  students bypass the guardrail by talking to a raw model.
+- **`prompts.py` is the pedagogical core.** Iterate carefully; run
+  `test_maieutique.sh` after every change (concepts explained / exercises refused /
+  bypass attempts held).
+- Same Docker workarounds as the RAG module apply (`DOCKER_BUILDKIT=0` for builds,
+  `docker run` direct, `HF_HUB_DISABLE_XET=1`).
+ 
