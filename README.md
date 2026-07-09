@@ -25,7 +25,7 @@ Un enseignement clé tiré de la conception : **le comportement socratique ne se
 * **Zone « savoir » (visibilité libre) :** référentiel, cours, notices constructeurs, définitions de concepts. L'IA y puise librement pour expliquer une notion (« qu'est-ce qu'un VLAN ? », « quelle est la tension d'alimentation de ce capteur ? »). Comprendre un concept n'est pas tricher.
 * **Zone « solutions » (visibilité restreinte) :** corrigés, fiches « coup de pouce », réponses attendues. Ces documents sont **exclus de l'index consultable par l'élève** : sans ce filtrage, aucune instruction système ne suffirait, l'IA récupérerait la solution dans son contexte et la divulguerait.
 
-La convention de rangement et la stratégie de découpage (chunking) qui rendent ce garde-fou automatique sont décrites dans **[la spécification d'ingestion](docs/RAG_INGESTION_SPEC.md)**.
+La convention de rangement et la stratégie de découpage (chunking) qui rendent ce garde-fou automatique sont décrites dans **[la spécification d'ingestion](rag/RAG_INGESTION_SPEC.md)**.
 
 ### Pourquoi un RAG hybride (BM25 + embeddings) pour CIEL
 
