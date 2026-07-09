@@ -1,5 +1,5 @@
 """
-ingest.py — 04/07/26 — @Supoz9 — v1.5
+ingest.py — @author: Supoz9 — v1.5
 
 
 ingest.py — Ingestion du corpus CIEL dans ChromaDB.

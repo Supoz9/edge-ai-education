@@ -1,5 +1,5 @@
 """
-chunking.py — 04/07/26 — @Supoz9 — v2.0
+chunking.py — @author: Supoz9 — v2.0
 
 Principes clés :
 - Le nom de fichier encode les métadonnées (<activite>_<seq>_<slug>_<type>.pdf).

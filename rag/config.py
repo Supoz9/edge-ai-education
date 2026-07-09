@@ -1,5 +1,5 @@
 """
-config.py — 04/07/26 — @Supoz9 — v1.0
+config.py — @author: supoz9 — v1.0
 
 Paramètres centraux du module RAG Edge-IA CIEL.
 
