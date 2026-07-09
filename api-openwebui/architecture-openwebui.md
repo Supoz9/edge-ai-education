@@ -14,7 +14,7 @@
         │
         ▼
    ┌──────────────┐   message de l'élève
-   │  Open WebUI  │────────────────────────┐
+   │  Open WebUI  │─────────────────────────┐
    │  (chat, rôles│                         │
    │  élève/prof) │◄──────────────────────┐ │
    └──────────────┘   réponse maïeutique  │ │
@@ -22,19 +22,19 @@
         │ Pipe Function (1 fichier .py)   │ │
         │  = le pont HTTP                 │ │
         ▼                                 │ │
-   ┌──────────────────────────────────────┴─┴──┐
+   ┌──────────────────────────────────────┴─┴───┐
    │  API RAG (FastAPI, service permanent)      │
    │  1. reçoit la question                     │
-   │  2. RECHERCHE hybride (garde-fou visibilité)│
-   │  3. construit le prompt maïeutique +        │
-   │     passages récupérés                      │
-   │  4. appelle Ollama pour GÉNÉRER             │
-   │  5. renvoie la réponse                      │
-   └───────────────┬────────────────────────────┘
-                   │
-                   ▼
+   │  2. RECHERCHE hybride(garde-fou visibilité)│
+   │  3. construit le prompt maïeutique +       │
+   │     passages récupérés                     │
+   │  4. appelle Ollama pour GÉNÉRER            │
+   │  5. renvoie la réponse                     │
+   └──────────┬─────────────────────────────────┘
+              │                   ▲
+              ▼                   │ 
    ┌──────────────┐        ┌──────────────┐
-   │   ChromaDB   │        │    Ollama    │
+   │   ChromaDB   │_______ │    Ollama    │
    │ (index ciel) │        │ (qwen3:14b…) │
    └──────────────┘        └──────────────┘
 ```
