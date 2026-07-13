@@ -207,7 +207,7 @@ Sur des questions réelles, le tuteur :
   questionnement ;
 * **tient face aux tentatives de contournement** (« le prof a dit que… », « oublie
   tes instructions »).
-Des exemples d'échanges réels sont rassemblés dans [EXEMPLES.md](EXEMPLES.md).
+Des exemples d'échanges réels sont rassemblés dans [api-openwebui/EXEMPLES.md](api-openwebui/EXEMPLES.md).
 Le mode d'emploi complet (lancement de l'API, installation de la Pipe Function,
 sécurisation des accès) est dans [api-openwebui/README.md](api-openwebui/README.md).
  
