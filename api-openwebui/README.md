@@ -22,15 +22,15 @@ d'emploi réel** validé sur le rig.
           │ Pipe Function (pipe_function.py, collée dans Open WebUI)
           │  = pont HTTP
           ▼
-   ┌────────────────────────────────────────────┐
-   │  API FastAPI (api.py, service Docker)      │
-   │  1. reçoit la question                     │
+   ┌─────────────────────────────────────────────┐
+   │  API FastAPI (api.py, service Docker)       │
+   │  1. reçoit la question                      │
    │  2. RECHERCHE hybride (garde-fou visibilité)│
    │  3. construit le prompt MAÏEUTIQUE +        │
    │     passages récupérés (prompts.py)         │
    │  4. appelle Ollama pour GÉNÉRER             │
    │  5. renvoie la réponse                      │
-   └───────┬───────────────────────┬────────────┘
+   └───────┬───────────────────────┬─────────────┘
            ▼                       ▼
    ┌──────────────┐        ┌──────────────┐
    │   ChromaDB   │        │    Ollama    │
